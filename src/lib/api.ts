@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // SUMMARY: Creates the base Axios instance for API communication.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5101/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://api-gestaluguel-gabriel-hxdmg4bfataxhzfg.brazilsouth-01.azurewebsites.net/api',
   headers: {
     'Content-Type': 'application/json',
   },
