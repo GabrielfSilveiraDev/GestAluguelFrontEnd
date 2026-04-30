@@ -157,8 +157,8 @@ export function useEditarDependente() {
 export function useExcluirDependente() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, inquilinoId }: { id: string; inquilinoId: string }) =>
-      api.delete(`/inquilinos/dependentes/${id}`),
+    mutationFn: (vars: { id: string; inquilinoId: string }) =>
+      api.delete(`/inquilinos/dependentes/${vars.id}`),
     onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ['dependentes', vars.inquilinoId] }),
   })
 }

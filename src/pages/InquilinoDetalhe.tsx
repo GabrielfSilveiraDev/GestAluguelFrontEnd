@@ -22,11 +22,11 @@ import { TableSkeleton } from '../components/ui/TableSkeleton'
 import type { Dependente } from '../types'
 
 const ESTADO_CIVIL = [
-  { value: 1, label: 'Solteiro' },
-  { value: 2, label: 'Casado' },
-  { value: 3, label: 'Divorciado' },
-  { value: 4, label: 'Viúvo' },
-  { value: 5, label: 'Uniao Estavel' },
+  { value: 'Solteiro', label: 'Solteiro(a)' },
+  { value: 'Casado', label: 'Casado(a)' },
+  { value: 'Divorciado', label: 'Divorciado(a)' },
+  { value: 'Viuvo', label: 'Viúvo(a)' },
+  { value: 'UniaoEstavel', label: 'União Estável' },
 ]
 
 const editarSchema = z.object({
@@ -45,7 +45,7 @@ const dependenteSchema = z.object({
   orgaoEmissor: z.string().optional(),
   dataNascimento: z.string().optional(),
   telefone: z.string().optional(),
-  estadoCivil: z.coerce.number().int().min(1).max(5),
+  estadoCivil: z.string().min(1, 'Estado civil obrigatório'),
 })
 
 type EditarFormData = z.infer<typeof editarSchema>
@@ -92,11 +92,11 @@ export function InquilinoDetalhe() {
 
   const {
     register: regDep, handleSubmit: handleDep, formState: { errors: errDep }, reset: resetDep,
-    setValue: setDepVal, watch: watchDep,
+    setValue: setDepVal,
   } = useForm<DependenteFormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(dependenteSchema) as any,
-    defaultValues: { estadoCivil: 1 },
+    defaultValues: { estadoCivil: 'Solteiro' },
   })
 
   const alertDias = watch('diasAlertaVencimento') ?? []
@@ -117,7 +117,14 @@ export function InquilinoDetalhe() {
 
   async function onSubmit(data: EditarFormData) {
     try {
-      const res = await editar.mutateAsync({ id: id!, ...data })
+      const res = await editar.mutateAsync({
+        id: id!,
+        ...data,
+        rg: inquilino!.rg ?? '',
+        orgaoEmissor: inquilino!.orgaoEmissor ?? '',
+        telefone: inquilino!.telefone ?? '',
+        estadoCivil: inquilino!.estadoCivil ?? 'Solteiro',
+      })
       toast.success(res.data.mensagem || 'Inquilino atualizado.')
       setShowEdit(false)
     } catch (err) {
@@ -608,5 +615,4 @@ export function InquilinoDetalhe() {
     </div>
   )
 }
-
 
