@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { User, FileText, Receipt, LogOut, Building2, Download } from 'lucide-react'
+import { User, FileText, Receipt, LogOut, Building2, Download, ClipboardCopy } from 'lucide-react'
 import api from '../lib/api'
 import type { RespostaApi, PortalInquilino, PortalFatura, PortalContrato } from '../types'
 import { formatCurrency, formatDate, formatCPF } from '../lib/utils'
@@ -80,10 +80,29 @@ function MinhasFaturas() {
     },
   })
 
+  async function handleCopiarPix(fatura: PortalFatura) {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5101/api'}/faturas/${fatura.id}/pix-nativo`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) {
+        toast.warning('PIX não disponível para esta fatura.')
+        return
+      }
+      const codigo = await res.text()
+      await navigator.clipboard.writeText(codigo)
+      toast.success('Código PIX copiado!')
+    } catch {
+      toast.error('Erro ao copiar código PIX.')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <TableSkeleton rows={4} cols={6} />
+        <TableSkeleton rows={4} cols={7} />
       </div>
     )
   }
@@ -104,6 +123,7 @@ function MinhasFaturas() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs font-semibold text-gray-500 border-b border-gray-100 bg-gray-50/60">
+              <th className="px-4 py-3">Apartamento</th>
               <th className="px-4 py-3">Mês</th>
               <th className="px-4 py-3">Aluguel</th>
               <th className="px-4 py-3">Água</th>
@@ -112,30 +132,49 @@ function MinhasFaturas() {
               <th className="px-4 py-3">Vencimento</th>
               <th className="px-4 py-3">Pagamento</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">PIX</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {faturas.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={10} className="px-4 py-10 text-center text-gray-400">
                   Nenhuma fatura encontrada.
                 </td>
               </tr>
             ) : (
-              faturas.map((f) => (
-                <tr key={f.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3 font-medium">{f.mesReferencia}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAluguel)}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAgua)}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorLuz)}</td>
-                  <td className="px-4 py-3 font-bold text-gray-900">{formatCurrency(f.valorTotal)}</td>
-                  <td className={`px-4 py-3 ${f.status === 'Atrasado' ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                    {formatDate(f.dataLimitePagamento)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{formatDate(f.dataPagamento)}</td>
-                  <td className="px-4 py-3">{getFaturaBadge(f.status)}</td>
-                </tr>
-              ))
+              faturas.map((f) => {
+                const isPago = f.status === 'Pago'
+                const aptLabel = f.blocoApartamento
+                  ? `${f.numeroApartamento} - Bloco ${f.blocoApartamento}`
+                  : (f.numeroApartamento || '—')
+                return (
+                  <tr key={f.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-900">{aptLabel}</td>
+                    <td className="px-4 py-3 font-medium">{f.mesReferencia}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAluguel)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAgua)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorLuz)}</td>
+                    <td className="px-4 py-3 font-bold text-gray-900">{formatCurrency(f.valorTotal)}</td>
+                    <td className={`px-4 py-3 ${f.status === 'Atrasado' ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                      {formatDate(f.dataLimitePagamento)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(f.dataPagamento)}</td>
+                    <td className="px-4 py-3">{getFaturaBadge(f.status)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {!isPago && (
+                        <button
+                          onClick={() => handleCopiarPix(f)}
+                          className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition-colors"
+                          title="Copiar código PIX"
+                        >
+                          <ClipboardCopy className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>

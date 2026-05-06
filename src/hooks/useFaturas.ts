@@ -51,6 +51,7 @@ export function useCriarFatura() {
       inquilinoId: string
       mesReferencia: string
       valorAluguel: number
+      valorGaragem?: number
       dataLimitePagamento: string
       kwAtual?: number | null
       kwMesAnteriorManual?: number | null

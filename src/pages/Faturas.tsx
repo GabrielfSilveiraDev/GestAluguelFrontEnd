@@ -3,7 +3,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Plus, Zap, CreditCard, Droplets, QrCode, Gauge, Copy } from 'lucide-react'
+import { Plus, Zap, CreditCard, Droplets, QrCode, Gauge, Copy, MessageCircle, ClipboardCopy } from 'lucide-react'
 import { NumericFormat } from 'react-number-format'
 import {
   useFaturasPorStatus,
@@ -15,6 +15,7 @@ import {
   useGerarPix,
 } from '../hooks/useFaturas'
 import { useInquilinos } from '../hooks/useInquilinos'
+import { useApartamentos } from '../hooks/useApartamentos'
 import type { Fatura } from '../types'
 import { formatCurrency, formatDate, extractApiError } from '../lib/utils'
 import { Badge } from '../components/ui/Badge'
@@ -26,9 +27,10 @@ import type { RespostaApi } from '../types'
 
 // —— Schemas ——
 const novaFaturaSchema = z.object({
-  inquilinoId: z.string().uuid('Selecione um inquilino'),
+  inquilinoId: z.string().uuid('Selecione um apartamento ocupado'),
   mesReferencia: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/, 'Use o formato MM/AAAA'),
   valorAluguel: z.coerce.number().positive('Deve ser maior que zero'),
+  valorGaragem: z.coerce.number().min(0),
   dataLimitePagamento: z.string().min(1, 'Obrigatorio'),
   kwAtual: z.coerce.number().nullish(),
   kwMesAnteriorManual: z.coerce.number().nullish(),
@@ -52,8 +54,11 @@ function getStatusBadge(status: string) {
 
 // —— Nova Fatura Form ——
 function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+  const { data: apartamentos } = useApartamentos()
   const { data: inquilinos } = useInquilinos()
   const criar = useCriarFatura()
+
+  const [selectedApartLabel, setSelectedApartLabel] = useState('')
 
   const {
     register,
@@ -64,20 +69,32 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   } = useForm<NovaFaturaData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(novaFaturaSchema) as any,
-    defaultValues: { valorAluguel: 0 },
+    defaultValues: { valorAluguel: 0, valorGaragem: 0 },
   })
 
-  function handleInquilinoChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value
-    setValue('inquilinoId', id)
-    const inq = inquilinos?.find((i) => i.id === id)
-    if (inq) setValue('valorAluguel', inq.valorAluguel)
+  const apartamentosOcupados = useMemo(
+    () => (apartamentos ?? []).filter((a) => a.ocupado),
+    [apartamentos]
+  )
+
+  function handleApartamentoChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const aptId = e.target.value
+    const apt = apartamentosOcupados.find((a) => a.id === aptId)
+    if (!apt) { setSelectedApartLabel(''); return }
+    setSelectedApartLabel(apt.bloco ? `${apt.numero} - Bloco ${apt.bloco}` : apt.numero)
+    const inq = (inquilinos ?? []).find((i) => i.apartamentoId === aptId)
+    if (inq) {
+      setValue('inquilinoId', inq.id)
+      setValue('valorAluguel', inq.valorAluguel)
+      setValue('valorGaragem', inq.garagem ?? 0)
+    }
   }
 
   async function onSubmit(data: NovaFaturaData) {
     try {
       const payload = {
         ...data,
+        valorGaragem: data.valorGaragem || 0,
         kwAtual: data.kwAtual || undefined,
         kwMesAnteriorManual: data.kwMesAnteriorManual || undefined,
         valorLuzManual: data.valorLuzManual || undefined,
@@ -94,15 +111,22 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {/* Apartamento */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Inquilino</label>
-        <select {...register('inquilinoId')} onChange={handleInquilinoChange} className={inputCls}>
-          <option value="">Selecione um inquilino</option>
-          {(inquilinos ?? []).map((i) => (
-            <option key={i.id} value={i.id}>{i.nomeCompleto}</option>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Apartamento</label>
+        <select onChange={handleApartamentoChange} className={inputCls} defaultValue="">
+          <option value="">Selecione um apartamento</option>
+          {apartamentosOcupados.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.bloco ? `${a.numero} - Bloco ${a.bloco}` : a.numero}
+            </option>
           ))}
         </select>
-        {errors.inquilinoId && <p className="text-red-500 text-xs mt-1">{errors.inquilinoId.message}</p>}
+        {errors.inquilinoId && (
+          <p className="text-red-500 text-xs mt-1">{errors.inquilinoId.message}</p>
+        )}
+        {/* hidden field so react-hook-form tracks inquilinoId */}
+        <input type="hidden" {...register('inquilinoId')} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -135,44 +159,46 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor do Aluguel</label>
-        <Controller
-          name="valorAluguel"
-          control={control}
-          render={({ field }) => (
-            <NumericFormat
-              thousandSeparator="." decimalSeparator="," prefix="R$ "
-              decimalScale={2} fixedDecimalScale className={inputCls}
-              value={field.value}
-              onValueChange={({ floatValue }) => field.onChange(floatValue ?? 0)}
-            />
-          )}
-        />
-        {errors.valorAluguel && <p className="text-red-500 text-xs mt-1">{errors.valorAluguel.message}</p>}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor do Aluguel</label>
+          <Controller
+            name="valorAluguel"
+            control={control}
+            render={({ field }) => (
+              <NumericFormat
+                thousandSeparator="." decimalSeparator="," prefix="R$ "
+                decimalScale={2} fixedDecimalScale className={inputCls}
+                value={field.value}
+                onValueChange={({ floatValue }) => field.onChange(floatValue ?? 0)}
+              />
+            )}
+          />
+          {errors.valorAluguel && <p className="text-red-500 text-xs mt-1">{errors.valorAluguel.message}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor da Garagem</label>
+          <Controller
+            name="valorGaragem"
+            control={control}
+            render={({ field }) => (
+              <NumericFormat
+                thousandSeparator="." decimalSeparator="," prefix="R$ "
+                decimalScale={2} fixedDecimalScale className={inputCls}
+                value={field.value}
+                onValueChange={({ floatValue }) => field.onChange(floatValue ?? 0)}
+              />
+            )}
+          />
+        </div>
       </div>
 
-      {/* kWh Section */}
+      {/* kWh Section — anterior à esquerda, atual à direita */}
       <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
         <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
           <Gauge className="w-3.5 h-3.5" /> Leitura de Energia (opcional)
         </p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Leitura Atual (kWh)</label>
-            <Controller
-              name="kwAtual"
-              control={control}
-              render={({ field }) => (
-                <NumericFormat
-                  thousandSeparator="." decimalSeparator="," decimalScale={2}
-                  className={inputCls} placeholder="Ex: 10.000,00"
-                  value={field.value ?? ''}
-                  onValueChange={({ floatValue }) => field.onChange(floatValue ?? null)}
-                />
-              )}
-            />
-          </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Leitura Anterior (só 1ª fatura)</label>
             <Controller
@@ -182,6 +208,21 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
                 <NumericFormat
                   thousandSeparator="." decimalSeparator="," decimalScale={2}
                   className={inputCls} placeholder="Ex: 9.800,00"
+                  value={field.value ?? ''}
+                  onValueChange={({ floatValue }) => field.onChange(floatValue ?? null)}
+                />
+              )}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Leitura Atual (kWh)</label>
+            <Controller
+              name="kwAtual"
+              control={control}
+              render={({ field }) => (
+                <NumericFormat
+                  thousandSeparator="." decimalSeparator="," decimalScale={2}
+                  className={inputCls} placeholder="Ex: 10.000,00"
                   value={field.value ?? ''}
                   onValueChange={({ floatValue }) => field.onChange(floatValue ?? null)}
                 />
@@ -238,6 +279,12 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         <input {...register('codigoPix')} className={inputCls} placeholder="Cole o código PIX aqui" />
       </div>
 
+      {selectedApartLabel && (
+        <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-500">
+          Apartamento selecionado: <strong className="text-gray-700">{selectedApartLabel}</strong>
+        </div>
+      )}
+
       <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
         <Button type="button" variant="secondary" onClick={onCancel}>Cancelar</Button>
         <Button type="submit" isLoading={criar.isPending}>Criar Fatura</Button>
@@ -281,6 +328,7 @@ export function Faturas() {
     () => Object.fromEntries((inquilinos ?? []).map((i) => [i.id, i])),
     [inquilinos]
   )
+
 
   const allFaturas = useMemo(
     () => [...(pendentes ?? []), ...(atrasadas ?? []), ...(pagas ?? [])],
@@ -390,6 +438,34 @@ export function Faturas() {
     }
   }
 
+  async function handleWhatsApp(fatura: Fatura) {
+    try {
+      const res = await api.get<RespostaApi<{ linkWhatsApp: string }>>(`/faturas/${fatura.id}/whatsapp-link`)
+      window.open(res.data.dados.linkWhatsApp, '_blank')
+    } catch (err) {
+      toast.error(extractApiError(err) || 'Telefone ou mensagem não configurados. Verifique em Configurações.')
+    }
+  }
+
+  async function handleCopiarPix(fatura: Fatura) {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5101/api'}/faturas/${fatura.id}/pix-nativo`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) {
+        toast.warning('PIX não configurado. Configure a chave PIX em Configurações.')
+        return
+      }
+      const codigo = await res.text()
+      await navigator.clipboard.writeText(codigo)
+      toast.success('Código PIX copiado!')
+    } catch {
+      toast.error('Erro ao copiar código PIX.')
+    }
+  }
+
   const filterLabels: Record<FilterStatus, string> = {
     todos: 'Todos', Pendente: 'Pendente', Atrasado: 'Atrasado', Pago: 'Pago',
   }
@@ -425,9 +501,11 @@ export function Faturas() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold text-gray-500 border-b border-gray-100 bg-gray-50/60">
+                <th className="px-4 py-3">Apartamento</th>
                 <th className="px-4 py-3">Inquilino</th>
                 <th className="px-4 py-3">Mês Ref.</th>
                 <th className="px-4 py-3">Aluguel</th>
+                <th className="px-4 py-3">Garagem</th>
                 <th className="px-4 py-3">Água</th>
                 <th className="px-4 py-3">Luz</th>
                 <th className="px-4 py-3 font-bold">Total</th>
@@ -440,10 +518,10 @@ export function Faturas() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
-                <tr><td colSpan={11}><TableSkeleton rows={5} cols={11} /></td></tr>
+                <tr><td colSpan={13}><TableSkeleton rows={5} cols={13} /></td></tr>
               ) : faturasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={13} className="px-4 py-10 text-center text-gray-400">
                     Nenhuma fatura encontrada
                   </td>
                 </tr>
@@ -451,13 +529,18 @@ export function Faturas() {
                 faturasFiltradas.map((f) => {
                   const isPago = f.status === 'Pago'
                   const inq = inquilinoMap[f.inquilinoId]
+                  const aptLabel = f.blocoApartamento
+                    ? `${f.numeroApartamento} - Bloco ${f.blocoApartamento}`
+                    : (f.numeroApartamento || '—')
                   return (
                     <tr key={f.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-900 max-w-[140px] truncate">
-                        {inq?.nomeCompleto ?? 'N/A'}
+                      <td className="px-4 py-3 font-medium text-gray-900">{aptLabel}</td>
+                      <td className="px-4 py-3 text-gray-700 max-w-[140px] truncate">
+                        {inq?.nomeCompleto ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-gray-600">{f.mesReferencia}</td>
                       <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAluguel)}</td>
+                      <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorGaragem ?? 0)}</td>
                       <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorAgua)}</td>
                       <td className="px-4 py-3 text-gray-600">{formatCurrency(f.valorLuz)}</td>
                       <td className="px-4 py-3 font-bold text-gray-900">{formatCurrency(f.valorTotal)}</td>
@@ -518,6 +601,22 @@ export function Faturas() {
                               <Zap className="w-4 h-4" />
                             </button>
                           )}
+                          {!isPago && (
+                            <button
+                              onClick={() => handleCopiarPix(f)}
+                              className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition-colors"
+                              title="Copiar PIX Nativo"
+                            >
+                              <ClipboardCopy className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleWhatsApp(f)}
+                            className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors"
+                            title="Enviar via WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -540,8 +639,7 @@ export function Faturas() {
           <p className="text-sm text-gray-600">
             Fatura de <strong>{inquilinoMap[pagamentoFatura?.inquilinoId ?? '']?.nomeCompleto ?? ''}</strong>{' '}
             — {pagamentoFatura?.mesReferencia} — <strong>{formatCurrency(pagamentoFatura?.valorTotal ?? 0)}</strong>
-          </p>
-          <div>
+          </p>          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Data do Pagamento</label>
             <input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} className={inputCls} />
           </div>

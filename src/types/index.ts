@@ -33,6 +33,7 @@ export interface Fatura {
   id: string
   mesReferencia: string
   valorAluguel: number
+  valorGaragem: number
   valorAgua: number
   valorLuz: number
   valorTotal: number
@@ -42,6 +43,9 @@ export interface Fatura {
   status: StatusFaturaStr
   statusDescricao: string
   inquilinoId: string
+  apartamentoId: string | null
+  numeroApartamento: string
+  blocoApartamento: string | null
   criadoEm: string
   kwMesAnterior: number | null
   kwAtual: number | null
@@ -70,6 +74,11 @@ export interface Configuracao {
   valorAgua: number
   atualizadoEm: string
   walletIdAsaas: string | null
+  numeroWhatsappLocador: string | null
+  mensagemPadraoWhatsapp: string | null
+  chavePix: string | null
+  nomeRecebedorPix: string | null
+  cidadeRecebedorPix: string | null
 }
 
 export interface GastoManutencao {
@@ -190,6 +199,7 @@ export interface PortalFatura {
   id: string
   mesReferencia: string
   valorAluguel: number
+  valorGaragem: number
   valorAgua: number
   valorLuz: number
   valorTotal: number
@@ -198,6 +208,8 @@ export interface PortalFatura {
   codigoPix: string | null
   status: StatusFaturaStr
   statusDescricao: string
+  numeroApartamento: string
+  blocoApartamento: string | null
 }
 
 export interface PortalContrato {

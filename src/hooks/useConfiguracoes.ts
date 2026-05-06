@@ -21,6 +21,24 @@ export function useAtualizarConfiguracoes() {
   })
 }
 
+export function useAtualizarWhatsApp() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { numeroWhatsapp: string; mensagemPadrao: string }) =>
+      api.put<RespostaApi<Configuracao>>('/configuracoes/whatsapp', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['configuracoes'] }),
+  })
+}
+
+export function useAtualizarPixNativo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { chavePix: string; nomeRecebedor: string; cidadeRecebedor: string }) =>
+      api.put<RespostaApi<Configuracao>>('/configuracoes/pix', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['configuracoes'] }),
+  })
+}
+
 export function useCriarSubcontaAsaas() {
   const qc = useQueryClient()
   return useMutation({

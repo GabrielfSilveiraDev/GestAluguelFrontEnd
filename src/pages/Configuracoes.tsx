@@ -3,9 +3,15 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Settings, Zap, Droplets, Wifi } from 'lucide-react'
+import { Settings, Zap, Droplets, Wifi, MessageCircle, QrCode } from 'lucide-react'
 import { NumericFormat } from 'react-number-format'
-import { useConfiguracoes, useAtualizarConfiguracoes, useCriarSubcontaAsaas } from '../hooks/useConfiguracoes'
+import {
+  useConfiguracoes,
+  useAtualizarConfiguracoes,
+  useCriarSubcontaAsaas,
+  useAtualizarWhatsApp,
+  useAtualizarPixNativo,
+} from '../hooks/useConfiguracoes'
 import { formatCurrency, extractApiError } from '../lib/utils'
 import { Button } from '../components/ui/Button'
 
@@ -23,8 +29,21 @@ const asaasSchema = z.object({
   site: z.string().optional(),
 })
 
+const whatsappSchema = z.object({
+  numeroWhatsapp: z.string().min(10, 'Numero invalido').regex(/^\d+$/, 'Somente digitos'),
+  mensagemPadrao: z.string().min(10, 'Mensagem muito curta'),
+})
+
+const pixNativoSchema = z.object({
+  chavePix: z.string().min(1, 'Chave PIX obrigatoria'),
+  nomeRecebedor: z.string().min(1, 'Nome obrigatorio').max(25, 'Maximo 25 caracteres'),
+  cidadeRecebedor: z.string().min(1, 'Cidade obrigatoria').max(15, 'Maximo 15 caracteres'),
+})
+
 type ConfigFormData = z.infer<typeof configSchema>
 type AsaasFormData = z.infer<typeof asaasSchema>
+type WhatsAppFormData = z.infer<typeof whatsappSchema>
+type PixNativoFormData = z.infer<typeof pixNativoSchema>
 
 const inputCls =
   'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#1E3A5F] transition-colors'
@@ -33,7 +52,10 @@ export function Configuracoes() {
   const { data: config, isLoading } = useConfiguracoes()
   const atualizar = useAtualizarConfiguracoes()
   const criarSubconta = useCriarSubcontaAsaas()
+  const atualizarWhatsApp = useAtualizarWhatsApp()
+  const atualizarPixNativo = useAtualizarPixNativo()
 
+  // — Globais —
   const {
     control, handleSubmit, reset, formState: { errors },
   } = useForm<ConfigFormData>({
@@ -42,6 +64,7 @@ export function Configuracoes() {
     defaultValues: { kwhValor: 0, valorAgua: 0 },
   })
 
+  // — Asaas —
   const {
     register: regAsaas, handleSubmit: handleAsaas, formState: { errors: errAsaas },
   } = useForm<AsaasFormData>({
@@ -50,9 +73,40 @@ export function Configuracoes() {
     defaultValues: { tipoPessoa: 'FISICA' },
   })
 
+  // — WhatsApp —
+  const {
+    register: regWa, handleSubmit: handleWa, reset: resetWa,
+    watch: watchWa, formState: { errors: errWa },
+  } = useForm<WhatsAppFormData>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(whatsappSchema) as any,
+    defaultValues: { numeroWhatsapp: '', mensagemPadrao: '' },
+  })
+
+  // — PIX Nativo —
+  const {
+    register: regPix, handleSubmit: handlePix, reset: resetPix,
+    watch: watchPix, formState: { errors: errPix },
+  } = useForm<PixNativoFormData>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(pixNativoSchema) as any,
+    defaultValues: { chavePix: '', nomeRecebedor: '', cidadeRecebedor: '' },
+  })
+
   useEffect(() => {
-    if (config) reset({ kwhValor: config.kwhValor, valorAgua: config.valorAgua })
-  }, [config, reset])
+    if (config) {
+      reset({ kwhValor: config.kwhValor, valorAgua: config.valorAgua })
+      resetWa({
+        numeroWhatsapp: config.numeroWhatsappLocador ?? '',
+        mensagemPadrao: config.mensagemPadraoWhatsapp ?? '',
+      })
+      resetPix({
+        chavePix: config.chavePix ?? '',
+        nomeRecebedor: config.nomeRecebedorPix ?? '',
+        cidadeRecebedor: config.cidadeRecebedorPix ?? '',
+      })
+    }
+  }, [config, reset, resetWa, resetPix])
 
   async function onSubmitConfig(data: ConfigFormData) {
     try {
@@ -65,15 +119,34 @@ export function Configuracoes() {
 
   async function onSubmitAsaas(data: AsaasFormData) {
     try {
-      const res = await criarSubconta.mutateAsync({
-        ...data,
-        cpfCnpj: data.cpfCnpj.replace(/\D/g, ''),
-      })
+      const res = await criarSubconta.mutateAsync({ ...data, cpfCnpj: data.cpfCnpj.replace(/\D/g, '') })
       toast.success(`Subconta Asaas criada: ${res.data.dados.nome}`)
     } catch (err) {
       toast.error(extractApiError(err))
     }
   }
+
+  async function onSubmitWhatsApp(data: WhatsAppFormData) {
+    try {
+      const res = await atualizarWhatsApp.mutateAsync(data)
+      toast.success(res.data.mensagem || 'Configuracoes de WhatsApp salvas.')
+    } catch (err) {
+      toast.error(extractApiError(err))
+    }
+  }
+
+  async function onSubmitPix(data: PixNativoFormData) {
+    try {
+      const res = await atualizarPixNativo.mutateAsync(data)
+      toast.success(res.data.mensagem || 'Configuracoes de PIX salvas.')
+    } catch (err) {
+      toast.error(extractApiError(err))
+    }
+  }
+
+  const nomeRecebedorVal = watchPix('nomeRecebedor') ?? ''
+  const cidadeRecebedorVal = watchPix('cidadeRecebedor') ?? ''
+  const mensagemVal = watchWa('mensagemPadrao') ?? ''
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -151,6 +224,114 @@ export function Configuracoes() {
         )}
       </div>
 
+      {/* WhatsApp */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
+            <MessageCircle className="w-5 h-5 text-green-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">WhatsApp</h2>
+            <p className="text-xs text-gray-500">Mensagem enviada ao inquilino ao clicar no ícone de WhatsApp nas faturas</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleWa(onSubmitWhatsApp)} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Número WhatsApp (formato internacional)</label>
+            <input
+              {...regWa('numeroWhatsapp')}
+              className={inputCls}
+              placeholder="5511999999999"
+              inputMode="numeric"
+            />
+            <p className="text-xs text-gray-400 mt-1">Somente dígitos, com DDI e DDD. Ex: 5511999999999</p>
+            {errWa.numeroWhatsapp && <p className="text-red-500 text-xs mt-1">{errWa.numeroWhatsapp.message}</p>}
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">Mensagem Padrão</label>
+              <span className="text-xs text-gray-400">{mensagemVal.length} caracteres</span>
+            </div>
+            <textarea
+              {...regWa('mensagemPadrao')}
+              rows={4}
+              className={`${inputCls} resize-y`}
+              placeholder="Olá {inquilino}, sua fatura de {mesReferencia} no valor de {valorTotal} vence em {dataVencimento}. PIX: {codigoPix}"
+            />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {['{inquilino}', '{mesReferencia}', '{valorTotal}', '{dataVencimento}', '{codigoPix}'].map((p) => (
+                <span key={p} className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded font-mono">{p}</span>
+              ))}
+            </div>
+            {errWa.mensagemPadrao && <p className="text-red-500 text-xs mt-1">{errWa.mensagemPadrao.message}</p>}
+          </div>
+          <div className="flex justify-end">
+            <Button type="submit" isLoading={atualizarWhatsApp.isPending}>Salvar WhatsApp</Button>
+          </div>
+        </form>
+      </div>
+
+      {/* PIX Nativo */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center">
+            <QrCode className="w-5 h-5 text-orange-500" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">PIX Nativo</h2>
+            <p className="text-xs text-gray-500">Dados para geração do código PIX sem integração Asaas</p>
+          </div>
+        </div>
+
+        <form onSubmit={handlePix(onSubmitPix)} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Chave PIX</label>
+            <input
+              {...regPix('chavePix')}
+              className={inputCls}
+              placeholder="CPF, e-mail, telefone ou chave aleatória"
+            />
+            {errPix.chavePix && <p className="text-red-500 text-xs mt-1">{errPix.chavePix.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">Nome do Recebedor</label>
+                <span className={`text-xs ${nomeRecebedorVal.length > 25 ? 'text-red-500' : 'text-gray-400'}`}>
+                  {nomeRecebedorVal.length}/25
+                </span>
+              </div>
+              <input
+                {...regPix('nomeRecebedor')}
+                className={inputCls}
+                placeholder="Joao Silva"
+                maxLength={25}
+              />
+              {errPix.nomeRecebedor && <p className="text-red-500 text-xs mt-1">{errPix.nomeRecebedor.message}</p>}
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">Cidade do Recebedor</label>
+                <span className={`text-xs ${cidadeRecebedorVal.length > 15 ? 'text-red-500' : 'text-gray-400'}`}>
+                  {cidadeRecebedorVal.length}/15
+                </span>
+              </div>
+              <input
+                {...regPix('cidadeRecebedor')}
+                className={inputCls}
+                placeholder="Sao Paulo"
+                maxLength={15}
+              />
+              {errPix.cidadeRecebedor && <p className="text-red-500 text-xs mt-1">{errPix.cidadeRecebedor.message}</p>}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button type="submit" isLoading={atualizarPixNativo.isPending}>Salvar PIX Nativo</Button>
+          </div>
+        </form>
+      </div>
+
       {/* Asaas */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -210,5 +391,4 @@ export function Configuracoes() {
     </div>
   )
 }
-
 
