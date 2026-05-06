@@ -36,8 +36,8 @@ const whatsappSchema = z.object({
 
 const pixNativoSchema = z.object({
   chavePix: z.string().min(1, 'Chave PIX obrigatoria'),
-  nomeRecebedor: z.string().min(1, 'Nome obrigatorio').max(25, 'Maximo 25 caracteres'),
-  cidadeRecebedor: z.string().min(1, 'Cidade obrigatoria').max(15, 'Maximo 15 caracteres'),
+  nomeRecebedor: z.string().min(1, 'Nome obrigatorio'),
+  cidadeRecebedor: z.string().min(1, 'Cidade obrigatoria'),
 })
 
 type ConfigFormData = z.infer<typeof configSchema>
@@ -86,7 +86,7 @@ export function Configuracoes() {
   // — PIX Nativo —
   const {
     register: regPix, handleSubmit: handlePix, reset: resetPix,
-    watch: watchPix, formState: { errors: errPix },
+    formState: { errors: errPix },
   } = useForm<PixNativoFormData>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(pixNativoSchema) as any,
@@ -144,8 +144,6 @@ export function Configuracoes() {
     }
   }
 
-  const nomeRecebedorVal = watchPix('nomeRecebedor') ?? ''
-  const cidadeRecebedorVal = watchPix('cidadeRecebedor') ?? ''
   const mensagemVal = watchWa('mensagemPadrao') ?? ''
 
   return (
@@ -295,33 +293,25 @@ export function Configuracoes() {
             {errPix.chavePix && <p className="text-red-500 text-xs mt-1">{errPix.chavePix.message}</p>}
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
+              <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-sm font-medium text-gray-700">Nome do Recebedor</label>
-                <span className={`text-xs ${nomeRecebedorVal.length > 25 ? 'text-red-500' : 'text-gray-400'}`}>
-                  {nomeRecebedorVal.length}/25
-                </span>
               </div>
               <input
                 {...regPix('nomeRecebedor')}
                 className={inputCls}
                 placeholder="Joao Silva"
-                maxLength={25}
               />
               {errPix.nomeRecebedor && <p className="text-red-500 text-xs mt-1">{errPix.nomeRecebedor.message}</p>}
             </div>
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-sm font-medium text-gray-700">Cidade do Recebedor</label>
-                <span className={`text-xs ${cidadeRecebedorVal.length > 15 ? 'text-red-500' : 'text-gray-400'}`}>
-                  {cidadeRecebedorVal.length}/15
-                </span>
               </div>
               <input
                 {...regPix('cidadeRecebedor')}
                 className={inputCls}
                 placeholder="Sao Paulo"
-                maxLength={15}
               />
               {errPix.cidadeRecebedor && <p className="text-red-500 text-xs mt-1">{errPix.cidadeRecebedor.message}</p>}
             </div>
