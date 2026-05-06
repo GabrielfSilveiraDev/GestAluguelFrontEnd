@@ -1,18 +1,18 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Plus, Zap, CreditCard, Droplets, QrCode, Gauge, Copy, MessageCircle, ClipboardCopy } from 'lucide-react'
+import { Plus, CreditCard, Droplets, QrCode, Gauge, MessageCircle, ClipboardCopy } from 'lucide-react'
 import { NumericFormat } from 'react-number-format'
 import {
   useFaturasPorStatus,
+  useFaturasPorInquilino,
   useCriarFatura,
   useRegistrarPagamento,
   useAtualizarConsumo,
   useAtualizarLeituraKw,
   useAtualizarPix,
-  useGerarPix,
 } from '../hooks/useFaturas'
 import { useInquilinos } from '../hooks/useInquilinos'
 import { useApartamentos } from '../hooks/useApartamentos'
@@ -36,7 +36,6 @@ const novaFaturaSchema = z.object({
   kwMesAnteriorManual: z.coerce.number().nullish(),
   valorLuzManual: z.coerce.number().nullish(),
   valorAguaManual: z.coerce.number().nullish(),
-  codigoPix: z.string().optional(),
 })
 
 type NovaFaturaData = z.infer<typeof novaFaturaSchema>
@@ -59,6 +58,7 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   const criar = useCriarFatura()
 
   const [selectedApartLabel, setSelectedApartLabel] = useState('')
+  const [selectedInquilinoId, setSelectedInquilinoId] = useState('')
 
   const {
     register,
@@ -72,6 +72,20 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
     defaultValues: { valorAluguel: 0, valorGaragem: 0 },
   })
 
+  const { data: faturasAnteriores } = useFaturasPorInquilino(selectedInquilinoId)
+
+  // Auto-preenche leitura anterior com kwAtual da fatura mais recente
+  useEffect(() => {
+    if (!faturasAnteriores || faturasAnteriores.length === 0) return
+    const sorted = [...faturasAnteriores].sort(
+      (a, b) => new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime()
+    )
+    const ultima = sorted[0]
+    if (ultima.kwAtual != null) {
+      setValue('kwMesAnteriorManual', ultima.kwAtual)
+    }
+  }, [faturasAnteriores, setValue])
+
   const apartamentosOcupados = useMemo(
     () => (apartamentos ?? []).filter((a) => a.ocupado),
     [apartamentos]
@@ -80,11 +94,12 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   function handleApartamentoChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const aptId = e.target.value
     const apt = apartamentosOcupados.find((a) => a.id === aptId)
-    if (!apt) { setSelectedApartLabel(''); return }
+    if (!apt) { setSelectedApartLabel(''); setSelectedInquilinoId(''); return }
     setSelectedApartLabel(apt.bloco ? `${apt.numero} - Bloco ${apt.bloco}` : apt.numero)
     const inq = (inquilinos ?? []).find((i) => i.apartamentoId === aptId)
     if (inq) {
       setValue('inquilinoId', inq.id)
+      setSelectedInquilinoId(inq.id)
       setValue('valorAluguel', inq.valorAluguel)
       setValue('valorGaragem', inq.garagem ?? 0)
     }
@@ -99,7 +114,6 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         kwMesAnteriorManual: data.kwMesAnteriorManual || undefined,
         valorLuzManual: data.valorLuzManual || undefined,
         valorAguaManual: data.valorAguaManual || undefined,
-        codigoPix: data.codigoPix || undefined,
       }
       const res = await criar.mutateAsync(payload)
       toast.success(res.data.mensagem || 'Fatura criada com sucesso.')
@@ -200,7 +214,7 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Leitura Anterior (só 1ª fatura)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Leitura Anterior (kWh)</label>
             <Controller
               name="kwMesAnteriorManual"
               control={control}
@@ -272,13 +286,6 @@ function NovaFaturaForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Código PIX <span className="text-gray-400 font-normal">(opcional)</span>
-        </label>
-        <input {...register('codigoPix')} className={inputCls} placeholder="Cole o código PIX aqui" />
-      </div>
-
       {selectedApartLabel && (
         <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-500">
           Apartamento selecionado: <strong className="text-gray-700">{selectedApartLabel}</strong>
@@ -302,33 +309,33 @@ export function Faturas() {
   const [consumoFatura, setConsumoFatura] = useState<Fatura | null>(null)
   const [kwhFatura, setKwhFatura] = useState<Fatura | null>(null)
   const [pixFatura, setPixFatura] = useState<Fatura | null>(null)
-  const [pixGeradoData, setPixGeradoData] = useState<{ faturaId: string; pixCopiaCola: string; qrCodeUrl: string } | null>(null)
 
   const [dataPagamento, setDataPagamento] = useState('')
   const [novaAgua, setNovaAgua] = useState(0)
   const [novaLuz, setNovaLuz] = useState(0)
   const [novoKwAtual, setNovoKwAtual] = useState(0)
   const [novoPix, setNovoPix] = useState('')
-  const [pixPago, setPixPago] = useState(false)
-
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { data: pendentes, isLoading: lP } = useFaturasPorStatus(1)
   const { data: atrasadas, isLoading: lA } = useFaturasPorStatus(2)
   const { data: pagas, isLoading: lPg } = useFaturasPorStatus(3)
   const { data: inquilinos } = useInquilinos()
+  const { data: apartamentos } = useApartamentos()
 
   const registrarPagamento = useRegistrarPagamento()
   const atualizarConsumo = useAtualizarConsumo()
   const atualizarLeituraKw = useAtualizarLeituraKw()
   const atualizarPix = useAtualizarPix()
-  const gerarPix = useGerarPix()
 
   const inquilinoMap = useMemo(
     () => Object.fromEntries((inquilinos ?? []).map((i) => [i.id, i])),
     [inquilinos]
   )
 
+  const apartamentoMap = useMemo(
+    () => Object.fromEntries((apartamentos ?? []).map((a) => [a.id, a])),
+    [apartamentos]
+  )
 
   const allFaturas = useMemo(
     () => [...(pendentes ?? []), ...(atrasadas ?? []), ...(pagas ?? [])],
@@ -342,41 +349,6 @@ export function Faturas() {
 
   const isLoading = lP || lA || lPg
 
-  // Polling PIX after generating
-  useEffect(() => {
-    if (!pixGeradoData) {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-      return
-    }
-
-    setPixPago(false)
-    pollIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await api.get<RespostaApi<Fatura>>(`/faturas/${pixGeradoData.faturaId}`)
-        const fatura = res.data.dados
-        if (fatura.status === 'Pago') {
-          setPixPago(true)
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current)
-            pollIntervalRef.current = null
-          }
-          toast.success('Pagamento recebido!')
-        }
-      } catch {
-        // silently ignore polling errors
-      }
-    }, 10000)
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-    }
-  }, [pixGeradoData])
 
   async function handleRegistrarPagamento() {
     if (!pagamentoFatura || !dataPagamento) return
@@ -424,20 +396,6 @@ export function Faturas() {
     }
   }
 
-  async function handleGerarPix(fatura: Fatura) {
-    try {
-      const res = await gerarPix.mutateAsync({ id: fatura.id })
-      setPixGeradoData({
-        faturaId: fatura.id,
-        pixCopiaCola: res.data.dados.pixCopiaCola,
-        qrCodeUrl: res.data.dados.qrCodeUrl,
-      })
-      toast.success('PIX gerado com sucesso!')
-    } catch (err) {
-      toast.error(extractApiError(err))
-    }
-  }
-
   async function handleWhatsApp(fatura: Fatura) {
     try {
       const res = await api.get<RespostaApi<{ linkWhatsApp: string }>>(`/faturas/${fatura.id}/whatsapp-link`)
@@ -449,20 +407,16 @@ export function Faturas() {
 
   async function handleCopiarPix(fatura: Fatura) {
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5101/api'}/faturas/${fatura.id}/pix-nativo`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      if (!res.ok) {
+      const res = await api.get<RespostaApi<string>>(`/faturas/${fatura.id}/pix-nativo`)
+      const codigo = res.data.dados
+      if (!codigo) {
         toast.warning('PIX não configurado. Configure a chave PIX em Configurações.')
         return
       }
-      const codigo = await res.text()
       await navigator.clipboard.writeText(codigo)
       toast.success('Código PIX copiado!')
     } catch {
-      toast.error('Erro ao copiar código PIX.')
+      toast.warning('PIX não configurado. Configure a chave PIX em Configurações.')
     }
   }
 
@@ -511,17 +465,16 @@ export function Faturas() {
                 <th className="px-4 py-3 font-bold">Total</th>
                 <th className="px-4 py-3">Vencimento</th>
                 <th className="px-4 py-3">Pagamento</th>
-                <th className="px-4 py-3">PIX</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
-                <tr><td colSpan={13}><TableSkeleton rows={5} cols={13} /></td></tr>
+                <tr><td colSpan={12}><TableSkeleton rows={5} cols={12} /></td></tr>
               ) : faturasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={12} className="px-4 py-10 text-center text-gray-400">
                     Nenhuma fatura encontrada
                   </td>
                 </tr>
@@ -529,9 +482,16 @@ export function Faturas() {
                 faturasFiltradas.map((f) => {
                   const isPago = f.status === 'Pago'
                   const inq = inquilinoMap[f.inquilinoId]
-                  const aptLabel = f.blocoApartamento
-                    ? `${f.numeroApartamento} - Bloco ${f.blocoApartamento}`
-                    : (f.numeroApartamento || '—')
+                  // Prioriza campos da fatura, com fallback pelo mapa de apartamentos via inquilino
+                  const aptNum = f.numeroApartamento || apartamentoMap[f.apartamentoId ?? '']?.numero || ''
+                  const aptBloco = f.blocoApartamento || apartamentoMap[f.apartamentoId ?? '']?.bloco || null
+                  const aptLabel = aptNum
+                    ? (aptBloco ? `${aptNum} - Bloco ${aptBloco}` : aptNum)
+                    : (inq ? (apartamentoMap[inq.apartamentoId]
+                        ? (apartamentoMap[inq.apartamentoId].bloco
+                            ? `${apartamentoMap[inq.apartamentoId].numero} - Bloco ${apartamentoMap[inq.apartamentoId].bloco}`
+                            : apartamentoMap[inq.apartamentoId].numero)
+                        : '—') : '—')
                   return (
                     <tr key={f.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-gray-900">{aptLabel}</td>
@@ -548,13 +508,6 @@ export function Faturas() {
                         {formatDate(f.dataLimitePagamento)}
                       </td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(f.dataPagamento)}</td>
-                      <td className="px-4 py-3 text-gray-500 max-w-[80px]">
-                        {f.codigoPix ? (
-                          <span className="text-xs truncate block cursor-help" title={f.codigoPix}>
-                            {f.codigoPix.slice(0, 8)}…
-                          </span>
-                        ) : '—'}
-                      </td>
                       <td className="px-4 py-3">{getStatusBadge(f.status)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
@@ -592,15 +545,6 @@ export function Faturas() {
                           >
                             <QrCode className="w-4 h-4" />
                           </button>
-                          {!isPago && (
-                            <button
-                              onClick={() => handleGerarPix(f)}
-                              className="p-1.5 rounded-lg hover:bg-teal-50 text-teal-600 transition-colors"
-                              title="Gerar PIX via Asaas"
-                            >
-                              <Zap className="w-4 h-4" />
-                            </button>
-                          )}
                           {!isPago && (
                             <button
                               onClick={() => handleCopiarPix(f)}
@@ -721,50 +665,6 @@ export function Faturas() {
             <Button onClick={handleAtualizarPix} isLoading={atualizarPix.isPending}>Salvar PIX</Button>
           </div>
         </div>
-      </Modal>
-
-      {/* PIX Gerado via Asaas Modal */}
-      <Modal isOpen={!!pixGeradoData} onClose={() => setPixGeradoData(null)} title="PIX Gerado com Sucesso" size="sm">
-        {pixGeradoData && (
-          <div className="space-y-4">
-            {pixPago ? (
-              <div className="rounded-xl bg-green-50 border border-green-100 px-4 py-6 text-center">
-                <p className="text-green-700 font-semibold text-lg">✅ Pagamento confirmado!</p>
-                <p className="text-green-600 text-sm mt-1">O pagamento foi recebido via PIX.</p>
-              </div>
-            ) : (
-              <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 flex items-center gap-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />
-                Aguardando pagamento… verificando a cada 10s
-              </div>
-            )}
-            {pixGeradoData.qrCodeUrl && (
-              <div className="flex justify-center">
-                <img src={pixGeradoData.qrCodeUrl} alt="QR Code PIX" className="w-48 h-48 rounded-xl border" />
-              </div>
-            )}
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">PIX Copia e Cola</label>
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly value={pixGeradoData.pixCopiaCola}
-                  className={`${inputCls} font-mono text-xs`}
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(pixGeradoData.pixCopiaCola)
-                    toast.success('Copiado!')
-                  }}
-                  className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors shrink-0"
-                  title="Copiar"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <Button className="w-full" onClick={() => setPixGeradoData(null)}>Fechar</Button>
-          </div>
-        )}
       </Modal>
     </div>
   )
